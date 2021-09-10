@@ -1,0 +1,3026 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Introduction to Logistic Regression in PyTorch"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "In this notebook, we're going to build a very simple neural network in PyTorch to do handwritten digit classification.\n",
+    "First, we'll start with some exploration of the MNIST dataset, explaining how we load and format the data.\n",
+    "We'll then jump into motivating and then implementing the logistic regression model, including the forward and backwards pass, loss functions, and optimizers.\n",
+    "After training the model, we'll evaluate how we did and visualize what we've learned.\n",
+    "Finally, we'll refactor our code in an object-oriented manner, using higher level APIs.\n",
+    "\n",
+    "Before we get started, some imports for the packages we'll be using:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%matplotlib inline\n",
+    "\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import torch\n",
+    "from tqdm.notebook import tqdm"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### MNIST Dataset"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The MNIST dataset is very popular machine learning dataset, consisting of 70000 grayscale images of handwritten digits, of dimensions 28x28. \n",
+    "We'll be using it as our example dataset for this section of the tutorial, with the goal being to predict which digit is in each image.\n",
+    "\n",
+    "![mnist](Figures/mnist.png)\n",
+    "\n",
+    "The first (and often most important) step in machine learning is preparing the data.\n",
+    "This can include downloading, organizing, formatting, shuffling, pre-processing, augmenting, and batching examples so that they can be fed to a model.\n",
+    "The `torchvision` package makes this easy by implementing many of these, allowing us to put these datasets into a usable form in only a few lines of code.\n",
+    "First, let's download the train and test sets of MNIST:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from torchvision import datasets, transforms\n",
+    "\n",
+    "mnist_train = datasets.MNIST(root=\"./datasets\", train=True, transform=transforms.ToTensor(), download=True)\n",
+    "mnist_test = datasets.MNIST(root=\"./datasets\", train=False, transform=transforms.ToTensor(), download=True)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Number of MNIST training examples: 60000\n",
+      "Number of MNIST test examples: 10000\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(\"Number of MNIST training examples: {}\".format(len(mnist_train)))\n",
+    "print(\"Number of MNIST test examples: {}\".format(len(mnist_test)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "As we'd expect, 60000 of the MNIST examples are in the train set, and the rest are in the test set.\n",
+    "We added the transform `ToTensor()` when formatting the dataset, to convert the input data from a Pillow `Image` type into a PyTorch `Tensor`. Tensors will eventually be the input type that we feed into our model. \n",
+    "\n",
+    "Let's look at an example image from the train set and its label.\n",
+    "Notice that the `image` tensor defaults to something 3-dimensional.\n",
+    "The \"1\" in the first dimension indicates that the image only has one channel (i.e. grayscale).\n",
+    "We need to get rid of this to visualize the image with `imshow`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Default image shape: torch.Size([1, 28, 28])\n",
+      "Reshaped image shape: torch.Size([28, 28])\n",
+      "The label for this image: 1\n"
+     ]
+    },
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<Figure size 432x288 with 1 Axes>"
+      ]
+     },
+     "metadata": {
+      "needs_background": "light"
+     },
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Pick out the 4th (0-indexed) example from the training set\n",
+    "image, label = mnist_train[3]\n",
+    "\n",
+    "# Plot the image\n",
+    "print(\"Default image shape: {}\".format(image.shape))\n",
+    "image = image.reshape([28,28])\n",
+    "print(\"Reshaped image shape: {}\".format(image.shape))\n",
+    "plt.imshow(image, cmap=\"gray\")\n",
+    "\n",
+    "# Print the label\n",
+    "print(\"The label for this image: {}\".format(label))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "While we could work directly with the data as a `torchvision.dataset`, we'll find it useful to use a `DataLoader`, which will take care of shuffling and batching:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=100, shuffle=True)\n",
+    "test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=100, shuffle=False)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "An example of a minibatch drawn from a `DataLoader`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Shape of the minibatch of images: torch.Size([100, 1, 28, 28])\n",
+      "Shape of the minibatch of labels: torch.Size([100])\n"
+     ]
+    }
+   ],
+   "source": [
+    "data_train_iter = iter(train_loader)\n",
+    "images, labels = data_train_iter.next()\n",
+    "\n",
+    "print(\"Shape of the minibatch of images: {}\".format(images.shape))\n",
+    "print(\"Shape of the minibatch of labels: {}\".format(labels.shape))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Logistic Regression Model"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Now that we have a good feel for how to load our data, let's start putting together our model. \n",
+    "In this tutorial, we'll be building a logistic regression model, which is essentially a fully-connected neural network without any hidden layers. \n",
+    "While fairly basic, logistic regression can perform surprisingly well on many simple classification tasks.\n",
+    "\n",
+    "#### The forward pass\n",
+    "\n",
+    "While our data inputs (which we'll call `x`) are images (i.e. 2-dimensional), MNIST digits are pretty small, and the model we're using is very simple.\n",
+    "Thus, we're going to be treating the input as flat vectors.\n",
+    "To convert our inputs into row vectors (a.k.a. flattening), we can use `view()`, the equivalent of NumPy's `reshape()`.\n",
+    "Also like NumPy, we can replace one of the dimensions of the reshaping with a `-1`, which tells PyTorch to infer this dimension based on the original dimensions and the other specified dimensions.\n",
+    "Let's do try this flattening on the minibatch of 100 images we drew in the previous section."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The shape of input x: torch.Size([100, 784])\n"
+     ]
+    }
+   ],
+   "source": [
+    "x = images.view(-1, 28*28)\n",
+    "print(\"The shape of input x: {}\".format(x.shape))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "To get our predicted probabilities of each digit, let's first start with the probability of a digit being a 1 like the image above. \n",
+    "For our simple model, we can start by applying a linear transformation. \n",
+    "That is, we multiply each pixel $x_i$ of the input row vector by a weight $w_{i,1}$, sum them all together, and then add a bias $b_1$.\n",
+    "This is equivalent to a dot product between the class \"1\" weights and the input:\n",
+    "\n",
+    "\\begin{align}\n",
+    "y_1 = \\sum_i x_i w_{i,1} + b_1\n",
+    "\\end{align}\n",
+    "\n",
+    "The magnitude of this result $y_1$, we'll take as being correlated to our belief in how likely we think the input digit was a 1. \n",
+    "The higher the value of $y_1$, the more likely we think the input image $x$ was a 1 (i.e., we'd hope we'd get a relatively large value for $y_1$ for the above image). \n",
+    "Remember though, our original goal was to identify all 10 digits, so we actually have:\n",
+    "\n",
+    "\\begin{align*}\n",
+    "y_0 =& \\sum_i x_i w_{i,0} + b_0 \\\\\n",
+    "y_1 =& \\sum_i x_i w_{i,1} + b_1 \\\\\n",
+    "y_2 =& \\sum_i x_i w_{i,2} + b_2 \\\\\n",
+    "y_3 =& \\sum_i x_i w_{i,3} + b_3 \\\\\n",
+    "y_4 =& \\sum_i x_i w_{i,4} + b_4 \\\\\n",
+    "y_5 =& \\sum_i x_i w_{i,5} + b_5 \\\\\n",
+    "y_6 =& \\sum_i x_i w_{i,6} + b_6 \\\\\n",
+    "y_7 =& \\sum_i x_i w_{i,7} + b_7 \\\\\n",
+    "y_8 =& \\sum_i x_i w_{i,8} + b_8 \\\\\n",
+    "y_9 =& \\sum_i x_i w_{i,9} + b_9\n",
+    "\\end{align*}\n",
+    "\n",
+    "We can express this in matrix form as:\n",
+    "\n",
+    "\\begin{align}\n",
+    "y = x W + b \n",
+    "\\end{align}\n",
+    "\n",
+    "To take advantage of parallel computation, we commonly process multiple inputs $x$ at once, in a minibatch.\n",
+    "We can stack each input $x$ into a matrix $X$, giving us \n",
+    "\n",
+    "\\begin{align}\n",
+    "Y = X W + b \n",
+    "\\end{align}\n",
+    "\n",
+    "Visualizing the dimensions:\n",
+    "\n",
+    "<img src=\"Figures/mnist_matmul.PNG\" width=\"500\"/>\n",
+    "\n",
+    "In our specific example, the minibatch size $m$ is $100$, the dimension of the data is $28 \\times 28=784$, and the number of classes $c$ is $10$.\n",
+    "While $X$ and $Y$ are matrices due to the batching, conventionally, they are often given lowercase variable names, as if they were for a single example.\n",
+    "We will use `x` and `y` throughout."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The weight $W$ and bias $b$ make up the parameters of this model.\n",
+    "When we say that we want to \"learn the model,\" what we're really trying to do is find good values for every element in $W$ and $b$.\n",
+    "Before we begin learning, we need to initialize our parameters to some value, as a starting point.\n",
+    "Here, we don't really know what the best values are, so we going to initialize $W$ randomly (using something called [Xavier initialization](http://proceedings.mlr.press/v9/glorot10a.html)), and set $b$ to a vector of zeros."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Randomly initialize weights W\n",
+    "W = torch.randn(784, 10)/np.sqrt(784)\n",
+    "W.requires_grad_()\n",
+    "\n",
+    "# Initialize bias b as 0s\n",
+    "b = torch.zeros(10, requires_grad=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "As both `W` and `b` are parameters we wish to learn, we set `requires_grad` to `True`. \n",
+    "This tells PyTorch's autograd to track the gradients for these two variables, and all the variables depending on `W` and `b`.\n",
+    "\n",
+    "With these model parameters, we compute $y$:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Linear transformation with W and b\n",
+    "y = torch.matmul(x, W) + b"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We can see for example what the predictions look like for the first example in our minibatch. Remember, the bigger the number, the more the model thinks the input $x$ is of that class."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "tensor([ 0.0913, -0.3637, -0.1562, -0.0901,  0.5751,  0.0322,  0.1325,  0.1867,\n",
+      "         0.0316, -0.3851], grad_fn=<SliceBackward>)\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(y[0,:])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We can interpret these values (aka logits) $y$ as probabilities if we normalize them to be positive and add up to 1. In logistic regression, we do this with a softmax:\n",
+    "\n",
+    "\\begin{align}\n",
+    "p(y_i) = \\text{softmax}(y_i) = \\frac{\\text{exp}(y_i)}{\\sum_j\\text{exp}(y_j)}\n",
+    "\\end{align}\n",
+    "\n",
+    "Notice that because the range of the exponential function is always non-negative, and since we're normalizing by the sum, the softmax achieves the desired property of producing values between 0 and 1 that sum to 1. If we look at the case with only 2 classes, we see that the softmax is the multi-class extension of the binary sigmoid function: \n",
+    "\n",
+    "<img src=\"Figures/Logistic-curve.png\" width=\"300\"/>\n",
+    "\n",
+    "We can compute the softmax ourselves using the above formula if we'd like, but PyTorch already has the softmax function in `torch.nn.functional`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "py[0] from equation: tensor([0.1051, 0.0666, 0.0820, 0.0876, 0.1704, 0.0990, 0.1095, 0.1156, 0.0990,\n",
+      "        0.0652], grad_fn=<SelectBackward>)\n",
+      "py[0] with torch.nn.functional.softmax: tensor([0.1051, 0.0666, 0.0820, 0.0876, 0.1704, 0.0990, 0.1095, 0.1156, 0.0990,\n",
+      "        0.0652], grad_fn=<SelectBackward>)\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Option 1: Softmax to probabilities from equation\n",
+    "py_eq = torch.exp(y) / torch.sum(torch.exp(y), dim=1, keepdim=True)\n",
+    "print(\"py[0] from equation: {}\".format(py_eq[0]))\n",
+    "\n",
+    "# Option 2: Softmax to probabilities with torch.nn.functional\n",
+    "import torch.nn.functional as F\n",
+    "py = F.softmax(y, dim=1)\n",
+    "print(\"py[0] with torch.nn.functional.softmax: {}\".format(py[0]))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We've now defined the forward pass of our model: given an input image, the graph returns the probabilities the model thinks the input is each of the 10 classes. Are we done?"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### The cross-entropy loss\n",
+    "\n",
+    "This tutorial isn't done yet, so you can probably guess that the answer is not quite. \n",
+    "We don't know the values of $W$ and $b$ yet! \n",
+    "Remember how we initialized them randomly? \n",
+    "Before we adjust any of the weights, we need a way to measure how the model is doing.\n",
+    "Specifically, we're going to measure how badly the model is doing.\n",
+    "We do this with a *loss* function, which takes the model's prediction and returns a single number (i.e. a scalar) summarizing model performance.\n",
+    "This loss will inform how we adjust the parameters of the model.\n",
+    "\n",
+    "The loss we commonly use in classification is cross-entropy, a concept from information theory.\n",
+    "Explaining exactly what the cross-entropy represents goes slightly beyond the scope of this course, but you can think of it as a way of quantifying how far apart one distribution $y'$ is from another $y$.\n",
+    "\n",
+    "\\begin{align}\n",
+    "H_{y'}(y)=-\\sum_i y'_i \\text{log}(y_i)\n",
+    "\\end{align}\n",
+    "\n",
+    "In our case, $y$ is the set of probabilities predicted by the model ($py$ above); $y'$ is the target distribution.\n",
+    "What is the target distribution?\n",
+    "It's the true label, which is what we wanted the model to predict.\n",
+    "\n",
+    "Cross-entropy not only captures how *correct* (max probability corresponds to the right answer) the model's answers are, it also accounts for how *confident* (high confidence in correct answers) they are. This encourages the model to produce very high probabilities for correct answers while driving down the probabilities for the wrong answers, instead of merely being satisfied with it being the argmax. \n",
+    "\n",
+    "We focus here on supervised learning, a setting in which we have the labels.\n",
+    "Our `DataLoader` automatically includes the corresponding labels for each of our inputs.\n",
+    "Here are the labels from the first time we retrieved a minibatch:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([100])\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(labels.shape)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Like the softmax operation, we can implement the cross-entropy directly from the equation, using the softmax output.\n",
+    "However, as with the softmax, `torch.nn.functional` already has the cross-entropy loss implemented as well."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "cross entropy from equation: 2.306553602218628\n",
+      "cross entropy with torch.nn.functional.cross_entropy: 2.306553840637207\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Cross-entropy loss from equation\n",
+    "cross_entropy_eq = torch.mean(-torch.log(py_eq)[range(labels.shape[0]),labels])\n",
+    "print(\"cross entropy from equation: {}\".format(cross_entropy_eq))\n",
+    "\n",
+    "# Option 2: cross-entropy loss with torch.nn.functional\n",
+    "cross_entropy = F.cross_entropy(y, labels)\n",
+    "print(\"cross entropy with torch.nn.functional.cross_entropy: {}\".format(cross_entropy))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Note that PyTorch's cross-entropy loss combines the softmax operator and cross-entropy into a single operation, for numerical stability reasons.\n",
+    "Don't do the softmax twice!\n",
+    "Make sure to feed in the pre-softmax logits `y`, not the post-softmax probabilities `py`."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### The backwards pass\n",
+    "\n",
+    "Now that we have the loss as a way of quantifying how badly the model is doing, we can improve our model by changing the parameters in a way that minimizes the loss.\n",
+    "For neural networks, the common way of doing this is with backpropagation: we take the gradient of the loss with respect to $W$ and $b$ and take a step in the direction that reduces our loss.\n",
+    "\n",
+    "If we were not using a deep learning framework like PyTorch, we would have to go through and derive all the gradients ourselves by hand, then code them into our program. \n",
+    "We certainly still could.\n",
+    "However, with modern auto-differentiation libraries, it's much faster and easier to let the computer do it.\n",
+    "\n",
+    "First, we need to create an optimizer.\n",
+    "There are many choices, but since logistic regression is fairly simple, we'll use standard stochastic gradient descent (SGD), which makes the following update:\n",
+    "\n",
+    "\\begin{align}\n",
+    "\\theta_{t+1} = \\theta_t - \\alpha \\nabla_\\theta \\mathcal{L}\n",
+    "\\end{align}\n",
+    "\n",
+    "where $\\theta$ is a parameter, $\\alpha$ is our learning rate (step size), and $\\nabla_\\theta \\mathcal{L}$ is the gradient of our loss with respect to $\\theta$."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Optimizer\n",
+    "optimizer = torch.optim.SGD([W,b], lr=0.1)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "When we created our parameters $W$ and $b$, we indicated that they require gradients.\n",
+    "To compute the gradients for $W$ and $b$, we call the `backward()` function on the cross-entropy loss."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "cross_entropy.backward()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Each of the variables that required gradients have now accumulated gradients.\n",
+    "We can see these for example on `b`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "tensor([ 0.0056, -0.0226, -0.0751,  0.0785,  0.1079, -0.0107,  0.0197, -0.0281,\n",
+       "        -0.0406, -0.0347])"
+      ]
+     },
+     "execution_count": 16,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "b.grad"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "To apply the gradients, we could manually update $W$ and $b$ using the update rule $\\theta_{t+1} = \\theta_t - \\alpha \\nabla_\\theta \\mathcal{L}$, but since we have an optimizer, we can tell it to perform the update step for us:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "optimizer.step()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We set our learning rate to 0.1, so `b` has been updated by `-0.1*b.grad`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "tensor([-0.0006,  0.0023,  0.0075, -0.0078, -0.0108,  0.0011, -0.0020,  0.0028,\n",
+       "         0.0041,  0.0035], requires_grad=True)"
+      ]
+     },
+     "execution_count": 18,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "b"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "We've now successfully trained on a minibatch!\n",
+    "However, one minibatch probably isn't enough.\n",
+    "At this point, we've trained the model on 100 examples out of the 60000 in the training set.\n",
+    "We're going to need to repeat this process, for more of the data.\n",
+    "\n",
+    "One more thing to keep in mind though: gradients calculated by `backward()` don't override the old values; instead, they accumulate.\n",
+    "Therefore, you'll want to clear the gradient buffers before you compute gradients for the next minibatch."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "b.grad before zero_grad(): tensor([ 0.0056, -0.0226, -0.0751,  0.0785,  0.1079, -0.0107,  0.0197, -0.0281,\n",
+      "        -0.0406, -0.0347])\n",
+      "b.grad after zero_grad(): tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(\"b.grad before zero_grad(): {}\".format(b.grad))\n",
+    "optimizer.zero_grad()\n",
+    "print(\"b.grad after zero_grad(): {}\".format(b.grad))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Model Training"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "To train the model, we just need repeat what we just did for more minibatches from the training set.\n",
+    "As a recap, the steps were:\n",
+    "1. Draw a minibatch\n",
+    "2. Zero the gradients in the buffers for `W` and `b`\n",
+    "3. Perform the forward pass (compute prediction, calculate loss)\n",
+    "4. Perform the backward pass (compute gradients, perform SGD step)\n",
+    "\n",
+    "Going through the entire dataset once is referred to as an epoch.\n",
+    "In many cases, we train neural networks for multiple epochs, but here, a single epoch is enough.\n",
+    "We also wrap the train_loader with `tqdm`.\n",
+    "This isn't neccessary, but it adds a handy progress bar so we can track our training progress."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "b3d57555fc3041ae88056b13ac1dc14a",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0, max=600.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Iterate through train set minibatchs \n",
+    "for images, labels in tqdm(train_loader):\n",
+    "    # Zero out the gradients\n",
+    "    optimizer.zero_grad()\n",
+    "    \n",
+    "    # Forward pass\n",
+    "    x = images.view(-1, 28*28)\n",
+    "    y = torch.matmul(x, W) + b\n",
+    "    cross_entropy = F.cross_entropy(y, labels)\n",
+    "    # Backward pass\n",
+    "    cross_entropy.backward()\n",
+    "    optimizer.step()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Testing"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Now let's see how we did! \n",
+    "For every image in our test set, we run the data through the model, and take the digit in which we have the highest confidence as our answer. \n",
+    "We then compute an accuracy by seeing how many we got correct.\n",
+    "We're going to wrap evaluation with `torch.no_grad()`, as we're not interested in computing gradients during evaluation.\n",
+    "By turning off the autograd engine, we can speed up evaluation."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "9e391902a941485ebd0b11ff6008e1fb",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n",
+      "Test accuracy: 0.9111999869346619\n"
+     ]
+    }
+   ],
+   "source": [
+    "correct = 0\n",
+    "total = len(mnist_test)\n",
+    "\n",
+    "with torch.no_grad():\n",
+    "    # Iterate through test set minibatchs \n",
+    "    for images, labels in tqdm(test_loader):\n",
+    "        # Forward pass\n",
+    "        x = images.view(-1, 28*28)\n",
+    "        y = torch.matmul(x, W) + b\n",
+    "        \n",
+    "        predictions = torch.argmax(y, dim=1)\n",
+    "        correct += torch.sum((predictions == labels).float())\n",
+    "    \n",
+    "print('Test accuracy: {}'.format(correct/total))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Not bad for a simple model and a few lines of code.\n",
+    "Before we conclude this example, there's one more interesting thing we can do. \n",
+    "Normally, it can be difficult to inspect exactly what the filters in a model are doing, but since this model is so simple, and the weights transform the data directly to their logits, we can actually visualize what the model's learning by simply plotting the weights. \n",
+    "The results look pretty reasonable:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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\n",
+      "text/plain": [
+       "<Figure size 1440x144 with 10 Axes>"
+      ]
+     },
+     "metadata": {
+      "needs_background": "light"
+     },
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Get weights\n",
+    "fig, ax = plt.subplots(1, 10, figsize=(20, 2))\n",
+    "\n",
+    "for digit in range(10):\n",
+    "    ax[digit].imshow(W[:,digit].detach().view(28,28), cmap='gray')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "As we can see, the model learned a template for each digit.\n",
+    "Remember that our model takes a dot product between the weights of each digit and input.\n",
+    "Therefore, the more the input matches the template for a digit, the higher the value of the dot product for that digit will be, which makes the model more likely to predict that digit."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### The Full Code"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The entire model, with the complete model definition, training, and evaluation (but minus the weights visualization) as independently runable code:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "b91e6b1c03254f648b40a9749d27723f",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0, max=600.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n"
+     ]
+    },
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "27483c0fbbbc4e3e91ddffff11f21486",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n",
+      "Test accuracy: 0.9017999768257141\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import torch\n",
+    "import torch.nn.functional as F\n",
+    "from torchvision import datasets, transforms\n",
+    "from tqdm.notebook import tqdm\n",
+    "\n",
+    "# Load the data\n",
+    "mnist_train = datasets.MNIST(root=\"./datasets\", train=True, transform=transforms.ToTensor(), download=True)\n",
+    "mnist_test = datasets.MNIST(root=\"./datasets\", train=False, transform=transforms.ToTensor(), download=True)\n",
+    "train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=100, shuffle=True)\n",
+    "test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=100, shuffle=False)\n",
+    "\n",
+    "## Training\n",
+    "# Initialize parameters\n",
+    "W = torch.randn(784, 10)/np.sqrt(784)\n",
+    "W.requires_grad_()\n",
+    "b = torch.zeros(10, requires_grad=True)\n",
+    "\n",
+    "# Optimizer\n",
+    "optimizer = torch.optim.SGD([W,b], lr=0.1)\n",
+    "\n",
+    "# Iterate through train set minibatchs \n",
+    "for images, labels in tqdm(train_loader):\n",
+    "    # Zero out the gradients\n",
+    "    optimizer.zero_grad()\n",
+    "    \n",
+    "    # Forward pass\n",
+    "    x = images.view(-1, 28*28)\n",
+    "    y = torch.matmul(x, W) + b\n",
+    "    cross_entropy = F.cross_entropy(y, labels)\n",
+    "    # Backward pass\n",
+    "    cross_entropy.backward()\n",
+    "    optimizer.step()\n",
+    "\n",
+    "## Testing\n",
+    "correct = 0\n",
+    "total = len(mnist_test)\n",
+    "\n",
+    "with torch.no_grad():\n",
+    "    # Iterate through test set minibatchs \n",
+    "    for images, labels in tqdm(test_loader):\n",
+    "        # Forward pass\n",
+    "        x = images.view(-1, 28*28)\n",
+    "        y = torch.matmul(x, W) + b\n",
+    "        \n",
+    "        predictions = torch.argmax(y, dim=1)\n",
+    "        correct += torch.sum((predictions == labels).float())\n",
+    "    \n",
+    "print('Test accuracy: {}'.format(correct/total))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Note: The accuracy from the full version directly above might return a slightly different test accuracy from the step-by-step version we first went through. \n",
+    "We trained our model with stochastic gradient descent (SGD), with the word \"stochastic\" highlighting that training is an inherently random process."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Higher level APIs"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "So far, we've primarily been building neural networks with fairy basic PyTorch operations.\n",
+    "We did this to provide a clearer picture of how models actually work and what's going on under the hood.\n",
+    "This can be important as you're learning concepts and the various frameworks, and sometimes the low-level control is necessary if you're trying to build something novel.\n",
+    "\n",
+    "However, most of the time, we do find ourselves repeating the same fairly standard lines of code, which can slow us down. \n",
+    "Worse, it clutters up our code unnecessarily and introduces room for bugs and typos.\n",
+    "And finally, as researchers or engineers, we would like to spend most of our time thinking on the highest levels of abstractions: I want to add a convolution layer here, then a fully-connected there, etc.\n",
+    "Having to code all the small details are distractions that can detract from our ability to translate ideas into code.\n",
+    "For this reason, PyTorch has higher level abstractions to help speed up implementation and improve model organization.\n",
+    "While there are many ways to organize PyTorch code, one common paradigm is with `torch.nn.Module`.\n",
+    "\n",
+    "#### Object-oriented Refactorization\n",
+    "\n",
+    "It often makes sense for us to code our models in an [object-oriented manner](https://realpython.com/python3-object-oriented-programming/).\n",
+    "To understand why, let's look back at the linear transformation $y = xW + b$ that we used for logistic regression. \n",
+    "We can see that while the operation consisted of a matrix multiplication and addition, also associated with this operation was the instantiation of two parameters `W` and `b`, and these two parameters conceptually *belong* to the transform.\n",
+    "As such, it would make sense to bundle up the instantiation of the two parameters with the actual transformation:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Note: illustrative example only; see below for torch.nn usage\n",
+    "class xW_plus_b:\n",
+    "    def __init__(self, dim_in, dim_out):\n",
+    "        self.W = torch.randn(dim_in, dim_out)/np.sqrt(dim_in)\n",
+    "        self.W.requires_grad_()\n",
+    "        self.b = torch.zeros(dim_out, requires_grad=True)\n",
+    "        \n",
+    "    def forward(self, x):\n",
+    "        return torch.matmul(x, self.W) + self.b"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "To use what we just wrote, we can create an `xW_plus_b` instance using its `__init__()` method (the constructor).\n",
+    "In this case, we're going to set the dimensions to be 784 and 10, as we did in our logisitic regression example above.\n",
+    "This creates an `xW_plus_b` instance with two parameters `W` and `b`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "W: torch.Size([784, 10])\n",
+      "b: torch.Size([10])\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Note: illustrative example only; see below for torch.nn usage\n",
+    "lin_custom = xW_plus_b(784, 10)\n",
+    "print(\"W: {}\".format(lin_custom.W.shape))\n",
+    "print(\"b: {}\".format(lin_custom.b.shape))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "After instantiating the instance, we can perform the actual linear transform of our custom `xW_plus_b` class by calling the instance's `forward()` function:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([1, 10])\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Note: illustrative example only; see below for torch.nn usage\n",
+    "x_rand = torch.randn(1,784)\n",
+    "y = lin_custom.forward(x_rand)\n",
+    "print(y.shape)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Using  `torch.nn`\n",
+    "\n",
+    "While we can certainly implement our own classes for the operations we'd like to use, we don't have to, as PyTorch already has them in the `torch.nn` sublibrary. "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import torch.nn as nn"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "For example, the linear transform example we just went through is called `torch.nn.Linear`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Linear parameters: [torch.Size([10, 784]), torch.Size([10])]\n",
+      "torch.Size([1, 10])\n"
+     ]
+    }
+   ],
+   "source": [
+    "lin = nn.Linear(784, 10)\n",
+    "print(\"Linear parameters: {}\".format([p.shape for p in lin.parameters()]))\n",
+    "\n",
+    "y = lin(x_rand)\n",
+    "print(y.shape)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The implementation for `nn.Linear` has a few more things under the hood (notice for example that the `forward()` function is aliased with calling the instance itself), but in spirit, it operates in much the same way as our custom `xW_plus_b` class.\n",
+    "In the first line, we instantiate a `Linear` object, which automatically creates weight and bias variables of the specified dimensions.\n",
+    "The fourth line then calls the `forward()` function (aliased with the object call), which performs the linear transformation."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Using `torch.nn.Module`\n",
+    "\n",
+    "The `torch.nn.Linear` class we just saw is a subclass of `torch.nn.Module`.\n",
+    "However, `Module`s do not have to just describe a single operation; they can also define a chain of operations, each of which may also be `Module`s.\n",
+    "As such, we can place our entire neural network within a `Module`.\n",
+    "In this case, the module can track all of its associated parameters, some of which may also be associated with a submodule (e.g. `nn.Linear`), while also defining the `forward()` function, in one place."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class MNIST_Logistic_Regression(nn.Module):\n",
+    "    def __init__(self):\n",
+    "        super().__init__()\n",
+    "        self.lin = nn.Linear(784, 10)\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        return self.lin(x)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "In this particular example, we didn't need to chain any operations, but we'll see this come in handy as we move on to more complex models.\n",
+    "Additionally, the `nn.Module` that we subclassed has a few other nice features.\n",
+    "For example:\n",
+    "- The `forward()` function of a `nn.Module` will call the `forward()` function of any child `nn.Module`s.\n",
+    "- `print()` will print out a formatted summary of our model, recursively summarizing any child `nn.Module`s as well.\n",
+    "- The `parameters()` function will return a generator that returns all parameters of a `nn.Module` (including those of any children)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The model: \n",
+      "MNIST_Logistic_Regression(\n",
+      "  (lin): Linear(in_features=784, out_features=10, bias=True)\n",
+      ")\n",
+      "\n",
+      "Parameters: \n",
+      "[Parameter containing:\n",
+      "tensor([[ 0.0131,  0.0238,  0.0332,  ...,  0.0134,  0.0163,  0.0345],\n",
+      "        [-0.0228, -0.0204,  0.0150,  ..., -0.0281, -0.0351,  0.0279],\n",
+      "        [ 0.0198,  0.0146,  0.0141,  ..., -0.0348, -0.0071, -0.0072],\n",
+      "        ...,\n",
+      "        [-0.0094, -0.0085,  0.0230,  ...,  0.0261,  0.0125, -0.0288],\n",
+      "        [-0.0123, -0.0054, -0.0077,  ..., -0.0070, -0.0009,  0.0191],\n",
+      "        [-0.0181,  0.0250, -0.0193,  ...,  0.0148, -0.0227, -0.0195]],\n",
+      "       requires_grad=True), Parameter containing:\n",
+      "tensor([ 0.0007, -0.0314, -0.0040,  0.0247, -0.0063, -0.0198, -0.0126, -0.0058,\n",
+      "         0.0065,  0.0165], requires_grad=True)]\n",
+      "\n",
+      "Output shape: \n",
+      "torch.Size([1, 10])\n"
+     ]
+    }
+   ],
+   "source": [
+    "model = MNIST_Logistic_Regression()\n",
+    "y = model(x_rand)\n",
+    "print(\"The model: \\n{}\".format(model))\n",
+    "print(\"\\nParameters: \\n{}\".format(list(model.parameters())))\n",
+    "print(\"\\nOutput shape: \\n{}\".format(y.shape))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Full code with `nn.Module`\n",
+    "\n",
+    "Refactoring our previous complete logistic regression code to use a `nn.Module`:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 33,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "3d240e2e038747989612eae9bc92935a",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0, max=600.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n"
+     ]
+    },
+    {
+     "data": {
+      "application/vnd.jupyter.widget-view+json": {
+       "model_id": "56389a1cf052442281243153d9da1be4",
+       "version_major": 2,
+       "version_minor": 0
+      },
+      "text/plain": [
+       "HBox(children=(FloatProgress(value=0.0), HTML(value='')))"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n",
+      "Test accuracy: 0.9023000001907349\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import torch\n",
+    "import torch.nn as nn\n",
+    "import torch.nn.functional as F\n",
+    "from torchvision import datasets, transforms\n",
+    "from tqdm.notebook import tqdm\n",
+    "\n",
+    "class MNIST_Logistic_Regression(nn.Module):\n",
+    "    def __init__(self):\n",
+    "        super().__init__()\n",
+    "        self.lin = nn.Linear(784, 10)\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        return self.lin(x)\n",
+    "\n",
+    "# Load the data\n",
+    "mnist_train = datasets.MNIST(root=\"./datasets\", train=True, transform=transforms.ToTensor(), download=True)\n",
+    "mnist_test = datasets.MNIST(root=\"./datasets\", train=False, transform=transforms.ToTensor(), download=True)\n",
+    "train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=100, shuffle=True)\n",
+    "test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=100, shuffle=False)\n",
+    "\n",
+    "## Training\n",
+    "# Instantiate model\n",
+    "model = MNIST_Logistic_Regression()\n",
+    "\n",
+    "# Loss and Optimizer\n",
+    "criterion = nn.CrossEntropyLoss()\n",
+    "optimizer = torch.optim.SGD(model.parameters(), lr=0.1)\n",
+    "\n",
+    "# Iterate through train set minibatchs \n",
+    "for images, labels in tqdm(train_loader):\n",
+    "    # Zero out the gradients\n",
+    "    optimizer.zero_grad()\n",
+    "    \n",
+    "    # Forward pass\n",
+    "    x = images.view(-1, 28*28)\n",
+    "    y = model(x)\n",
+    "    loss = criterion(y, labels)\n",
+    "    # Backward pass\n",
+    "    loss.backward()\n",
+    "    optimizer.step()\n",
+    "\n",
+    "## Testing\n",
+    "correct = 0\n",
+    "total = len(mnist_test)\n",
+    "\n",
+    "with torch.no_grad():\n",
+    "    # Iterate through test set minibatchs \n",
+    "    for images, labels in tqdm(test_loader):\n",
+    "        # Forward pass\n",
+    "        x = images.view(-1, 28*28)\n",
+    "        y = model(x)\n",
+    "        \n",
+    "        predictions = torch.argmax(y, dim=1)\n",
+    "        correct += torch.sum((predictions == labels).float())\n",
+    "    \n",
+    "print('Test accuracy: {}'.format(correct/total))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "While the benefits of organizing a model as a `nn.Module` may not be as obvious for a simple logistic regression model, such a programming style allows for much quicker and cleaner implementations for more complex models, as we'll see in later notebooks."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.6"
+  },
+  "widgets": {
+   "application/vnd.jupyter.widget-state+json": {
+    "state": {
+     "00ab3361f9b948b48b0976623b0a83a7": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "02ba6fc556654c0bad4a145c4b17418c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "03770380477d40069927db8dba2ecc34": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "04a01f520eaf4d1a8ebc8689fc58c824": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_26d5c364d9f04653ac0ae8767c252a89",
+       "style": "IPY_MODEL_5081bd58b2c548079ae99dce7948daa1",
+       "value": " 600/600 [00:19&lt;00:00, 30.41it/s]"
+      }
+     },
+     "05372d8d36294452a3a083d0e7844c96": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_cbc29e26fbbd461ab309214dac56a9ce",
+       "style": "IPY_MODEL_232cd012d52d437daabfba407e796fbc",
+       "value": " 100/100 [00:03&lt;00:00, 29.56it/s]"
+      }
+     },
+     "0645f6470aad4651bab08c97952a0a24": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_55001bfcd7dd4a0db1f8170c55fc99a9",
+        "IPY_MODEL_04a01f520eaf4d1a8ebc8689fc58c824"
+       ],
+       "layout": "IPY_MODEL_f045f24016f5412696ccd4d42d3ac4a6"
+      }
+     },
+     "070afb362477408c98244dcab5f6f78d": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_5ebbf75c554e4ada93d74270c4550786",
+       "style": "IPY_MODEL_3258e34f678f45839bdea8d59f2aa1c3",
+       "value": " 100/100 [00:02&lt;00:00, 46.13it/s]"
+      }
+     },
+     "08127475b3c0456db3db286c913b7271": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "0932d5c51b9b43eb96c0de08e3f7912d": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_70837d601e064314987516a48f246429",
+       "max": 600,
+       "style": "IPY_MODEL_d47fa458994a4c2d9922b6daf4779539",
+       "value": 600
+      }
+     },
+     "0b73de309f0e4622960445b5e67b0f23": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "0b90a0686fef47dc8985949c412ebf43": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_53ae2d18383a43ebb7a2327b62efdbfe",
+       "style": "IPY_MODEL_7e87dbe6f0484a6d891c4359f362f2ba",
+       "value": 100
+      }
+     },
+     "0c18433b48ac4be0b0e037d5be0c63f8": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "0dcf2e7c51d04f5da15ede8dd49f0eac": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "1110c89bcb7948b8a4081f188c8f053f": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "13366e3937e24dc4bf9254771e0ac514": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "139a26066e2a453a92a5741ac7440a3f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "180345d08d3e43fa88bf97bc5cb3f4b1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "19ad38959222414cab16faf7bd42713f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_ab3028b53595467b92c4906fb61ba183",
+       "max": 600,
+       "style": "IPY_MODEL_22d2a9019d9c4417883d571b24405d10",
+       "value": 600
+      }
+     },
+     "1b2e84ba16de427fa17a661d4033d276": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_56f455eeb9624937980c91d59d0a72ed",
+       "style": "IPY_MODEL_e988071311e640fd84d509864d1c64b6",
+       "value": 100
+      }
+     },
+     "1cb1d5db956f4c1599f362159649c5cb": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "1e340c6bb86f4a068e41cbb423949885": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_19ad38959222414cab16faf7bd42713f",
+        "IPY_MODEL_d1e25145f12b42a3be57a6aace611870"
+       ],
+       "layout": "IPY_MODEL_6029a556c8d543f9929a6e553bf4a9a5"
+      }
+     },
+     "1ebda3e2449a4577be0b36950eff50ae": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_cd4ee4fec9a845c3a17cbc5516345a56",
+        "IPY_MODEL_a52554c238f84cefa9e52f4ea05c75e7"
+       ],
+       "layout": "IPY_MODEL_e3e090911b134c2f9f59b1f8cdddcf4b"
+      }
+     },
+     "21606ea13c9c4afa8ef95cd727230bdc": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "22d2a9019d9c4417883d571b24405d10": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "232cd012d52d437daabfba407e796fbc": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "25f6dea15b0448fd941133106d8d1d37": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "26d5c364d9f04653ac0ae8767c252a89": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "28859aee2b35402d9a371a808b0f77af": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "30309ea05c174448943ecb5ba92ae0e5": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "312e9fe46c29463999edfd8af1ade5b9": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_6dadd75dd8224017a21fea4302e957aa",
+       "style": "IPY_MODEL_a4d777e8f0994329912efaab8f50d747",
+       "value": 100
+      }
+     },
+     "3258e34f678f45839bdea8d59f2aa1c3": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "32e9a047ea3a41439e5d83ecc5310ddb": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_a52ede1b19f84fa1887ca5c33686b97e",
+       "style": "IPY_MODEL_acd64aff4bd24ec49aef585414303fab",
+       "value": " 100/100 [00:02&lt;00:00, 35.70it/s]"
+      }
+     },
+     "33724df2f1a3433bbb26aa18bc88b126": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_e1d28e912a1d40d8890d9946c1f86981",
+       "style": "IPY_MODEL_cabcc13852074e07a8d322cd99f24e5e",
+       "value": 100
+      }
+     },
+     "3877f7bc979a4999a78e0ca12a2efd2f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_fb696dfe7bae4a00b375d9c7c6053293",
+       "style": "IPY_MODEL_42473977bd5248308eca1210a128bdae",
+       "value": " 100/100 [00:01&lt;00:00, 52.80it/s]"
+      }
+     },
+     "3b47462712754c9484f4bb97183b127f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "3bf1ea9535ad49c189eafc90c872c079": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "4112ba3474384d839e66ffaaab8f2355": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_c0971f8cf1284aaca0068c0b57d6cab0",
+       "style": "IPY_MODEL_28859aee2b35402d9a371a808b0f77af",
+       "value": " 600/600 [00:16&lt;00:00, 35.95it/s]"
+      }
+     },
+     "42473977bd5248308eca1210a128bdae": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "42c21b2eb4834c7b84838c3831e2f34b": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "45759a4191104054b18f78f161e4114b": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "46fbadc7425740fd9a72f8034a4e6753": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "479ef10b25b44072bf9b62bb3244e1f8": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "48e29dbfe2f64b07adb36bf03501699d": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_ffeae8ce8dde457eb2ba3ec954e2216e",
+        "IPY_MODEL_d393ae32b0a94f1d8591995c66f71243"
+       ],
+       "layout": "IPY_MODEL_fb6e26311b32443391e4a1ce19de0678"
+      }
+     },
+     "4b92c8e1cdcb4ea2a3622474cab1a875": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "4bec82b3e28441f78808b30d623eded8": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_f65f7b566392443eab4238881599bb42",
+       "max": 600,
+       "style": "IPY_MODEL_5d83d8f891bb47489b5eebd8331f97d1",
+       "value": 600
+      }
+     },
+     "4c2af1030c8246eda9ccc184abd348d1": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "4c83d21fbe2546b1bc75b37618873f65": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_0932d5c51b9b43eb96c0de08e3f7912d",
+        "IPY_MODEL_bfb0ba4f81f14080b9924db914dcf40c"
+       ],
+       "layout": "IPY_MODEL_630457eddaf54d7cafe66f26ab1d46a7"
+      }
+     },
+     "4e39f76cfaa941b0a5ad44075c7ef198": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_7cbcf84618fd43efa672966c819226c5",
+        "IPY_MODEL_d291924bdbb349e69a084d7d91c76ebe"
+       ],
+       "layout": "IPY_MODEL_f8d0a0172da942d0bf4db39113cfef42"
+      }
+     },
+     "4ed8e96625e24a919dcdc548e12086e9": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "4f35ff781dcf40c6b03ce427f220dfe4": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "5081bd58b2c548079ae99dce7948daa1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "53606d6c4d93409c82e68a7fdca9610c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "53ae2d18383a43ebb7a2327b62efdbfe": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "546189e2848f4b218d68788c06d6ea85": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "55001bfcd7dd4a0db1f8170c55fc99a9": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_61b8676138324dd3831ebaed08572e4f",
+       "max": 600,
+       "style": "IPY_MODEL_b1fa6a5c2a2443f7b0561ad65e10468e",
+       "value": 600
+      }
+     },
+     "56f455eeb9624937980c91d59d0a72ed": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "5d83d8f891bb47489b5eebd8331f97d1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "5dfeb1724b7340a8806aa3e944db9956": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_d89d4ffb0770466292129554c7369cae",
+        "IPY_MODEL_dd2b6ac6de5a4907bde927b72e888208"
+       ],
+       "layout": "IPY_MODEL_e5bb8e91222b466791970de816a0187b"
+      }
+     },
+     "5e838fe82fa549aaab1fde139b26121a": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "5ebbf75c554e4ada93d74270c4550786": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "5ebf9c13b75741a3950b6461bee442af": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "5f3b481c4c934ee3ab2a2086412d6cc8": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "6029a556c8d543f9929a6e553bf4a9a5": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "61b8676138324dd3831ebaed08572e4f": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "630457eddaf54d7cafe66f26ab1d46a7": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "64630cc14f9b474287401e4bac647c22": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "64777a4ec2d0417a949bba49edaedd94": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "6779d64d71cc4f80a18e3d7edb9fe77b": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_479ef10b25b44072bf9b62bb3244e1f8",
+       "max": 600,
+       "style": "IPY_MODEL_7903dd30475249cdb0b4e61de937e7c1",
+       "value": 600
+      }
+     },
+     "6943475d270b4209873dc4835b0300bd": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_6fd0da636b74404abc93e483a3bebfb3",
+        "IPY_MODEL_8032b7629d5943febafa8d25e59c175c"
+       ],
+       "layout": "IPY_MODEL_e28d4876f752451a8d81c93b107bbcd3"
+      }
+     },
+     "69e506b09b4c4f0db02641e724e78020": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "6ac175ccc9174632802d40c527afdea3": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_f0874107f14b455ca59d0efd8bea5db1",
+       "style": "IPY_MODEL_9613febf823e490487115eaacc3791a6",
+       "value": " 600/600 [00:16&lt;00:00, 36.04it/s]"
+      }
+     },
+     "6ad9032d612f454b85321ed603ca3815": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_b29d4784e1194b61851631bbb06c4a32",
+       "max": 600,
+       "style": "IPY_MODEL_4b92c8e1cdcb4ea2a3622474cab1a875",
+       "value": 600
+      }
+     },
+     "6d69e250974440d2aaa5d90d5371c959": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "6dadd75dd8224017a21fea4302e957aa": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "6dd5a25c673f4a4faf8c7d0b2e398abf": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_ee64dbf4666c4ca790c82b352e2bd3dc",
+       "style": "IPY_MODEL_a8abaf603e14436c9556618d0a599e82",
+       "value": 100
+      }
+     },
+     "6fd0da636b74404abc93e483a3bebfb3": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_eef6e87e976447aea9d6ec869e115173",
+       "style": "IPY_MODEL_53606d6c4d93409c82e68a7fdca9610c",
+       "value": 100
+      }
+     },
+     "703e062492724a06bdf1510053ccbc6a": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_ef59d86997614b18a8c1311689822f03",
+       "style": "IPY_MODEL_02ba6fc556654c0bad4a145c4b17418c",
+       "value": " 600/600 [00:24&lt;00:00, 24.88it/s]"
+      }
+     },
+     "70837d601e064314987516a48f246429": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "709f252ba28243698ffde792b2b7297c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_69e506b09b4c4f0db02641e724e78020",
+       "style": "IPY_MODEL_ad8cee115d6749df944c36a3564fef46",
+       "value": " 100/100 [00:03&lt;00:00, 31.10it/s]"
+      }
+     },
+     "71f74cf044db43979c7a297ff8be572e": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "74c67621af0148fe92defe8e4513c56c": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "752ef1aef0804eabbe76ba2a4f5a56c8": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "75657820ee9648bca89a17c4def23516": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "759a293be651417982a43ab19f7ef9be": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "75a748fff88147efbf2c40e75150f667": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_de4d634ca87f438e9c4aaf69072cb2e1",
+        "IPY_MODEL_6ac175ccc9174632802d40c527afdea3"
+       ],
+       "layout": "IPY_MODEL_c93a4f2634ab4334a9bc86f864ec9d03"
+      }
+     },
+     "77411f173eaa4ba6ac63ed381d2374e4": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "779e7d516c99412f84a0be9af866c266": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_781e1aed06e348ac827b4339bc448f75",
+        "IPY_MODEL_32e9a047ea3a41439e5d83ecc5310ddb"
+       ],
+       "layout": "IPY_MODEL_21606ea13c9c4afa8ef95cd727230bdc"
+      }
+     },
+     "7813e38f58f242f5868953bd4c8003fc": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "781e1aed06e348ac827b4339bc448f75": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_5f3b481c4c934ee3ab2a2086412d6cc8",
+       "style": "IPY_MODEL_da6915df7a4e4525a369586d4e45111a",
+       "value": 100
+      }
+     },
+     "7838ea755ce5480eab9de43af72d6a69": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "7903dd30475249cdb0b4e61de937e7c1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "794168f4d4594941aa2441f5a662d1df": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "7953b46a197646e085cd429c4777ec30": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "79ef0f8bd70f4164a11f0afe3ec669c2": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_794168f4d4594941aa2441f5a662d1df",
+       "max": 600,
+       "style": "IPY_MODEL_3b47462712754c9484f4bb97183b127f",
+       "value": 600
+      }
+     },
+     "7cbcf84618fd43efa672966c819226c5": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_74c67621af0148fe92defe8e4513c56c",
+       "style": "IPY_MODEL_139a26066e2a453a92a5741ac7440a3f",
+       "value": 100
+      }
+     },
+     "7e2a7cb7b012443d80dd1e19e3f9934e": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "7e87dbe6f0484a6d891c4359f362f2ba": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "8032b7629d5943febafa8d25e59c175c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_dfbdeaf4bae14bde9dca3e0d579bafad",
+       "style": "IPY_MODEL_ed8e61c1bb23474d90831e61954f4985",
+       "value": " 100/100 [00:03&lt;00:00, 29.53it/s]"
+      }
+     },
+     "809bbad7968743fab4783f7d0d36bdf0": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_8886b0dda5ea42adb4a2800057aa3b4b",
+       "max": 600,
+       "style": "IPY_MODEL_7838ea755ce5480eab9de43af72d6a69",
+       "value": 600
+      }
+     },
+     "82a4101b67bf48eda5c119e282f9e167": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_1b2e84ba16de427fa17a661d4033d276",
+        "IPY_MODEL_05372d8d36294452a3a083d0e7844c96"
+       ],
+       "layout": "IPY_MODEL_77411f173eaa4ba6ac63ed381d2374e4"
+      }
+     },
+     "83e68222f60c48dca841c8836e582553": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "85a0c592d9b54b44a240e2dff7947ebd": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_f3149d5c75fa45999c4797beb1efb134",
+        "IPY_MODEL_efd0d8f6ffee421b9c372c76ed9ef1a8"
+       ],
+       "layout": "IPY_MODEL_0c18433b48ac4be0b0e037d5be0c63f8"
+      }
+     },
+     "86aabc046a7d4feeaec002c17836cf74": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_6779d64d71cc4f80a18e3d7edb9fe77b",
+        "IPY_MODEL_d9f45d42e93e4a65b23d8fe9eeff9680"
+       ],
+       "layout": "IPY_MODEL_546189e2848f4b218d68788c06d6ea85"
+      }
+     },
+     "87443c75233049f2b0d63527c639d788": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "8886b0dda5ea42adb4a2800057aa3b4b": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "8a5088b74cf642f687cf6d1d67cb229a": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "8c5e48995dd2474cb1ac1ca557aee46c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_30309ea05c174448943ecb5ba92ae0e5",
+       "style": "IPY_MODEL_42c21b2eb4834c7b84838c3831e2f34b",
+       "value": " 600/600 [00:17&lt;00:00, 34.84it/s]"
+      }
+     },
+     "8c69ddf36e724015b78f9cc894a6f21f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "8dd74db4495047afa57108a8322cc955": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_46fbadc7425740fd9a72f8034a4e6753",
+       "style": "IPY_MODEL_0dcf2e7c51d04f5da15ede8dd49f0eac",
+       "value": " 100/100 [00:02&lt;00:00, 40.64it/s]"
+      }
+     },
+     "8e51c26c3ff44704a9d7a8a1569d80e2": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "9613febf823e490487115eaacc3791a6": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "96ad99d2f3484aa6a7d5e826b948ad7f": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_4c2af1030c8246eda9ccc184abd348d1",
+       "style": "IPY_MODEL_4f35ff781dcf40c6b03ce427f220dfe4",
+       "value": " 100/100 [00:02&lt;00:00, 39.49it/s]"
+      }
+     },
+     "9b3be61161934791a0843b79608a7bac": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "9e6e9e41a88c48be86597fd4c6d32411": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_0b90a0686fef47dc8985949c412ebf43",
+        "IPY_MODEL_96ad99d2f3484aa6a7d5e826b948ad7f"
+       ],
+       "layout": "IPY_MODEL_87443c75233049f2b0d63527c639d788"
+      }
+     },
+     "a040d319ed724ba887065525487ff446": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_809bbad7968743fab4783f7d0d36bdf0",
+        "IPY_MODEL_703e062492724a06bdf1510053ccbc6a"
+       ],
+       "layout": "IPY_MODEL_e551461ea6654cfe8133172eff4de7dd"
+      }
+     },
+     "a1599327408f4216a3c7726870784b8a": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_8a5088b74cf642f687cf6d1d67cb229a",
+       "style": "IPY_MODEL_180345d08d3e43fa88bf97bc5cb3f4b1",
+       "value": " 600/600 [00:20&lt;00:00, 29.41it/s]"
+      }
+     },
+     "a4d777e8f0994329912efaab8f50d747": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "a52554c238f84cefa9e52f4ea05c75e7": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_c9b74f1c8796436dbe487ebd9e428079",
+       "style": "IPY_MODEL_c8e1306d346b4496bae3e5d745db9b7b",
+       "value": " 600/600 [00:16&lt;00:00, 35.42it/s]"
+      }
+     },
+     "a52ede1b19f84fa1887ca5c33686b97e": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "a6f0c7ea1aff42cdb9eeab5ac77328be": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "a8a79b095f874fe0bb8764e960bdbe57": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_5e838fe82fa549aaab1fde139b26121a",
+       "style": "IPY_MODEL_64630cc14f9b474287401e4bac647c22",
+       "value": " 100/100 [00:02&lt;00:00, 48.19it/s]"
+      }
+     },
+     "a8abaf603e14436c9556618d0a599e82": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "a9cb23521c114698aec111175b0fdded": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_be90841470e448f398c1d84b58b1e5f0",
+        "IPY_MODEL_a8a79b095f874fe0bb8764e960bdbe57"
+       ],
+       "layout": "IPY_MODEL_ede80f846a4a4f21b637697aa2ece42a"
+      }
+     },
+     "a9fc6a779ac44d4293dbc9bb1471128e": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "ab3028b53595467b92c4906fb61ba183": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "acd64aff4bd24ec49aef585414303fab": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "ad5dee1503b446ddb28cccbf183fc363": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_4bec82b3e28441f78808b30d623eded8",
+        "IPY_MODEL_8c5e48995dd2474cb1ac1ca557aee46c"
+       ],
+       "layout": "IPY_MODEL_75657820ee9648bca89a17c4def23516"
+      }
+     },
+     "ad8cee115d6749df944c36a3564fef46": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "b0ae3ea99c9849768dbdea29a2c8e13b": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "b1fa6a5c2a2443f7b0561ad65e10468e": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "b29d4784e1194b61851631bbb06c4a32": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "b3c0849c8fbb49b989ca8ac1e00f2ca7": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_312e9fe46c29463999edfd8af1ade5b9",
+        "IPY_MODEL_070afb362477408c98244dcab5f6f78d"
+       ],
+       "layout": "IPY_MODEL_752ef1aef0804eabbe76ba2a4f5a56c8"
+      }
+     },
+     "b914085c48e34577b65a00e1b65949a8": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "bc8f5b6c8f534b79940e05b0bf9a7ba4": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "be90841470e448f398c1d84b58b1e5f0": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_b914085c48e34577b65a00e1b65949a8",
+       "style": "IPY_MODEL_759a293be651417982a43ab19f7ef9be",
+       "value": 100
+      }
+     },
+     "bfb0ba4f81f14080b9924db914dcf40c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_83e68222f60c48dca841c8836e582553",
+       "style": "IPY_MODEL_7813e38f58f242f5868953bd4c8003fc",
+       "value": " 600/600 [00:20&lt;00:00, 29.87it/s]"
+      }
+     },
+     "c0971f8cf1284aaca0068c0b57d6cab0": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "c2890ce3286f4f73af27b73b3bfbeb66": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_79ef0f8bd70f4164a11f0afe3ec669c2",
+        "IPY_MODEL_a1599327408f4216a3c7726870784b8a"
+       ],
+       "layout": "IPY_MODEL_caead25870804f11aa1e279e7d4b9603"
+      }
+     },
+     "c8253a11811f4b0cbc812051b6de6f6e": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "c8561fa56818435f94707ee41181197c": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "c8e1306d346b4496bae3e5d745db9b7b": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "c93a4f2634ab4334a9bc86f864ec9d03": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "c9b74f1c8796436dbe487ebd9e428079": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "cabcc13852074e07a8d322cd99f24e5e": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "caead25870804f11aa1e279e7d4b9603": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "cbc29e26fbbd461ab309214dac56a9ce": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "cd44a9cf38fa4433a0662235ebd1a5f0": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "cd4ee4fec9a845c3a17cbc5516345a56": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_f0ad882691bd4012aa89810f86c52621",
+       "max": 600,
+       "style": "IPY_MODEL_1cb1d5db956f4c1599f362159649c5cb",
+       "value": 600
+      }
+     },
+     "d045ee6e5ade4f938d6b76862ca5dc33": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "d0ba99eac67041c2a449a80b71e1a0a5": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "d1901b27e0554752ae4addf37d4acfd4": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "d1e25145f12b42a3be57a6aace611870": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_4ed8e96625e24a919dcdc548e12086e9",
+       "style": "IPY_MODEL_0b73de309f0e4622960445b5e67b0f23",
+       "value": " 600/600 [00:19&lt;00:00, 31.36it/s]"
+      }
+     },
+     "d291924bdbb349e69a084d7d91c76ebe": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_00ab3361f9b948b48b0976623b0a83a7",
+       "style": "IPY_MODEL_7953b46a197646e085cd429c4777ec30",
+       "value": " 100/100 [00:02&lt;00:00, 39.69it/s]"
+      }
+     },
+     "d3440bde35cd4306b00d651fb9606e47": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "d393ae32b0a94f1d8591995c66f71243": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_a9fc6a779ac44d4293dbc9bb1471128e",
+       "style": "IPY_MODEL_b0ae3ea99c9849768dbdea29a2c8e13b",
+       "value": " 600/600 [00:19&lt;00:00, 30.64it/s]"
+      }
+     },
+     "d47fa458994a4c2d9922b6daf4779539": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "d89d4ffb0770466292129554c7369cae": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_7e2a7cb7b012443d80dd1e19e3f9934e",
+       "style": "IPY_MODEL_25f6dea15b0448fd941133106d8d1d37",
+       "value": 100
+      }
+     },
+     "d9f45d42e93e4a65b23d8fe9eeff9680": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_5ebf9c13b75741a3950b6461bee442af",
+       "style": "IPY_MODEL_d3440bde35cd4306b00d651fb9606e47",
+       "value": " 600/600 [00:20&lt;00:00, 28.95it/s]"
+      }
+     },
+     "da6915df7a4e4525a369586d4e45111a": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "db35d1a9069a4d86b37b3f3d85ff05f5": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_cd44a9cf38fa4433a0662235ebd1a5f0",
+       "style": "IPY_MODEL_a6f0c7ea1aff42cdb9eeab5ac77328be",
+       "value": " 600/600 [00:20&lt;00:00, 29.41it/s]"
+      }
+     },
+     "dc1ec29fb4054067a283cc37d19debeb": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_6ad9032d612f454b85321ed603ca3815",
+        "IPY_MODEL_4112ba3474384d839e66ffaaab8f2355"
+       ],
+       "layout": "IPY_MODEL_df2f1c9f45dd4974bc218e0f571b020c"
+      }
+     },
+     "dd2b6ac6de5a4907bde927b72e888208": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_d045ee6e5ade4f938d6b76862ca5dc33",
+       "style": "IPY_MODEL_3bf1ea9535ad49c189eafc90c872c079",
+       "value": " 100/100 [00:02&lt;00:00, 34.76it/s]"
+      }
+     },
+     "de4d634ca87f438e9c4aaf69072cb2e1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_6d69e250974440d2aaa5d90d5371c959",
+       "max": 600,
+       "style": "IPY_MODEL_c8561fa56818435f94707ee41181197c",
+       "value": 600
+      }
+     },
+     "df2f1c9f45dd4974bc218e0f571b020c": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "dfbdeaf4bae14bde9dca3e0d579bafad": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e01fab92b3e94bc6992d25581ab86245": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_f1dcaff9e6d34c208aa3601a740471e1",
+        "IPY_MODEL_8dd74db4495047afa57108a8322cc955"
+       ],
+       "layout": "IPY_MODEL_d1901b27e0554752ae4addf37d4acfd4"
+      }
+     },
+     "e085bf0edc8f405ea1e200394a2d699d": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_6dd5a25c673f4a4faf8c7d0b2e398abf",
+        "IPY_MODEL_709f252ba28243698ffde792b2b7297c"
+       ],
+       "layout": "IPY_MODEL_13366e3937e24dc4bf9254771e0ac514"
+      }
+     },
+     "e1d28e912a1d40d8890d9946c1f86981": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e28d4876f752451a8d81c93b107bbcd3": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e2ee4488d9fb48949fa658478b188d8a": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "FloatProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_d0ba99eac67041c2a449a80b71e1a0a5",
+       "max": 600,
+       "style": "IPY_MODEL_9b3be61161934791a0843b79608a7bac",
+       "value": 600
+      }
+     },
+     "e3e090911b134c2f9f59b1f8cdddcf4b": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e551461ea6654cfe8133172eff4de7dd": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e5bb8e91222b466791970de816a0187b": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "e988071311e640fd84d509864d1c64b6": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "ProgressStyleModel",
+      "state": {
+       "description_width": "initial"
+      }
+     },
+     "ed8e61c1bb23474d90831e61954f4985": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "DescriptionStyleModel",
+      "state": {
+       "description_width": ""
+      }
+     },
+     "ede80f846a4a4f21b637697aa2ece42a": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "ee0d392ddfec4748b5b2926f1ffcc739": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_33724df2f1a3433bbb26aa18bc88b126",
+        "IPY_MODEL_3877f7bc979a4999a78e0ca12a2efd2f"
+       ],
+       "layout": "IPY_MODEL_71f74cf044db43979c7a297ff8be572e"
+      }
+     },
+     "ee64dbf4666c4ca790c82b352e2bd3dc": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "eef6e87e976447aea9d6ec869e115173": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "ef59d86997614b18a8c1311689822f03": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "efd0d8f6ffee421b9c372c76ed9ef1a8": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HTMLModel",
+      "state": {
+       "layout": "IPY_MODEL_1110c89bcb7948b8a4081f188c8f053f",
+       "style": "IPY_MODEL_03770380477d40069927db8dba2ecc34",
+       "value": " 100/100 [00:03&lt;00:00, 29.83it/s]"
+      }
+     },
+     "f045f24016f5412696ccd4d42d3ac4a6": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "f0874107f14b455ca59d0efd8bea5db1": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "f0ad882691bd4012aa89810f86c52621": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "f1dcaff9e6d34c208aa3601a740471e1": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_8e51c26c3ff44704a9d7a8a1569d80e2",
+       "style": "IPY_MODEL_08127475b3c0456db3db286c913b7271",
+       "value": 100
+      }
+     },
+     "f3149d5c75fa45999c4797beb1efb134": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_64777a4ec2d0417a949bba49edaedd94",
+       "style": "IPY_MODEL_8c69ddf36e724015b78f9cc894a6f21f",
+       "value": 100
+      }
+     },
+     "f65f7b566392443eab4238881599bb42": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "f8d0a0172da942d0bf4db39113cfef42": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "fb696dfe7bae4a00b375d9c7c6053293": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "fb6e26311b32443391e4a1ce19de0678": {
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "1.2.0",
+      "model_name": "LayoutModel",
+      "state": {}
+     },
+     "fd0373f64152443cb49b3cfe0bdaea65": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "HBoxModel",
+      "state": {
+       "children": [
+        "IPY_MODEL_e2ee4488d9fb48949fa658478b188d8a",
+        "IPY_MODEL_db35d1a9069a4d86b37b3f3d85ff05f5"
+       ],
+       "layout": "IPY_MODEL_45759a4191104054b18f78f161e4114b"
+      }
+     },
+     "ffeae8ce8dde457eb2ba3ec954e2216e": {
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "1.5.0",
+      "model_name": "IntProgressModel",
+      "state": {
+       "bar_style": "success",
+       "description": "100%",
+       "layout": "IPY_MODEL_c8253a11811f4b0cbc812051b6de6f6e",
+       "max": 600,
+       "style": "IPY_MODEL_bc8f5b6c8f534b79940e05b0bf9a7ba4",
+       "value": 600
+      }
+     }
+    },
+    "version_major": 2,
+    "version_minor": 0
+   }
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
